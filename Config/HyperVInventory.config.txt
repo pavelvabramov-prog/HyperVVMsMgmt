@@ -1,0 +1,88 @@
+# Inventory report profiles. Add [REPORT PROFILE: Name] to create more.
+# Profile columns are emitted in the order listed.
+[AVAILABLE COLUMNS]
+ #VM Status
+Cluster Name	
+HV-Host	
+Is Clustered  
+VMName
+VM Full Name
+State
+Status
+
+ #VM Storage
+Volume(s)
+VM Actual Size, TB
+VM Provisioned Size, TB
+Checkpoints
+CheckpointSize, TB
+Pass-through LUNs
+Pass-through Size, TB
+Virtual FC
+Virtual SAN
+
+ #VM Settings
+VMNetwork
+CPU Compatibility
+ 
+#VM TAGs
+Scope
+Env
+App
+Role
+Contact
+
+#REPORT PROFILES
+#Create you reports here like [REPORT PROFILE: Custom Report]
+
+[REPORT PROFILE: Default]
+Cluster Name
+HV-Host
+Is Clustered
+VMName
+VM Full Name
+State
+Status
+Volume(s)
+VM Actual Size, TB
+VM Provisioned Size, TB
+VMNetwork
+Scope
+Env
+App
+
+[REPORT PROFILE: Short]
+Cluster Name
+HV-Host
+Is Clustered
+VMName
+VM Full Name
+State
+Scope
+Env
+App
+
+[REPORT PROFILE: Full]
+Cluster Name
+HV-Host
+Is Clustered
+VMName
+VM Full Name
+State
+Status
+Volume(s)
+VM Actual Size, TB
+VM Provisioned Size, TB
+Checkpoints
+CheckpointSize, TB
+Pass-through LUNs
+Pass-through Size, TB
+Virtual FC
+Virtual SAN
+VMNetwork
+CPU Compatibility
+Scope
+Env
+App
+Role
+Contact

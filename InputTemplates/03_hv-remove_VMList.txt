@@ -1,0 +1,3 @@
+﻿# VMName TargetHost
+# One VM per line; quote display names containing spaces.
+# EXAMPLE (commented): "HVTSTVM055 - My Test VM" HVTSTCLUSTER6

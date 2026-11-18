@@ -1,0 +1,21 @@
+﻿===Hyper-V Guest OS Settings===
+Hyper-V Host:		HVHostName
+VM Name:		VMName
+Guest Username:		.\Administrator
+Guest Password:		$Passw0rd	    	
+PCNameOverride:     
+     
+VM Net Adapter: 	Network Adapter 1
+IP Address:		192.168.0.
+Subnet Mask:		255.255.255.0
+Default Gateway:	192.168.0.254
+DNS Servers:		192.168.0.1,192.168.0.2
+
+PrimaryNIC(DNSreg): Network Adapter 1 
+Domain:             YOURDOMAIN.ORG
+Domain OU:          OU=Servers,DC=YOURDOMAIN,DC=ORG   
+ADUsers to Loc.Adm:
+
+Enable RDP:		Yes
+Allow RDP-NLA only:	Off
+Windows Firewall:	Off

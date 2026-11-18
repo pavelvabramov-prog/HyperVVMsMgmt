@@ -1,0 +1,25 @@
+﻿# Server tag catalog. Full-line and inline # comments are supported.
+# Category names and approved values are case-insensitive.
+[Scope]
+IT
+BUS
+
+[Env]
+INF
+TEMP
+TEST
+DEV
+PROD
+
+[App]
+ERP
+CRM
+
+[Role]
+APP
+DB
+WEB
+FILE
+
+[Contact]
+ALLOW_CUSTOM=YES  # Contact names are unrestricted

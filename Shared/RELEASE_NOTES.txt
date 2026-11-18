@@ -1,0 +1,35 @@
+HyperVVMsMgmt - NamePolicy Step 2.1
+=================================
+
+BASELINE: Step 2.0 (preserved separately; no intentional changes to name matching, VM ID verification, cluster roles, disk cleanup, or guest NIC MAC mapping).
+
+COMMANDS AND PARAMETERS
+-----------------------
+hv-create -ConfigFile <file> [-TargetHost <host-or-cluster>] [-ValidateOnly] [-AllowDuplicateBaseVMName] [-ShowTiming] [-Help]
+hv-config -ConfigFile <file> [-ValidateOnly] [-StartVMIfOff] [-ADCheckMode JumpHostOnly|GuestOnly] [-AllowExistingADComputer] [-PSDirectMaxAttempts <1..1000>] [-Help]
+hv-remove -VMName <name>[,<name>...] -TargetHost <host-or-cluster> [-ValidateOnly] [-ResetADAccount] [-KeepADAccount] [-ADNameToCleanUp <ad-name>] [-Y] [-ForceFolderCleanup] [-ShowTiming] [-Help]
+hv-remove -VMListFile <file> [-ValidateOnly] [-ResetADAccount] [-Y] [-ForceFolderCleanup] [-ShowTiming] [-Help]
+hv-creds: existing credentials helper (unchanged).
+Use each command's -Help for detailed descriptions and examples.
+
+VM LIST FILE (for hv-remove -VMListFile)
+---------------------------------------
+VMName TargetHost
+HVTSTVM040 HVTSTCLUSTER6
+HVTSTVM041 HVTSTCLUSTER6
+"HVTSTVM055 - My Test VM" HVTSTCLUSTER6
+HVTSTWS123 HVTSTVH050
+
+Whitespace separated; one VM per line. Header optional; blank lines and # comments ignored. Quote names containing spaces.
+
+CHANGES IN STEP 2.1
+-------------------
+1. hv-create config parser detects duplicate numbered Network_N / VLAN_N keys, including duplicate blank keys; rejects orphan VLAN_N without Network_N. Errors show affected VM and line for duplicate keys.
+2. hv-remove VM LIST includes Hyper-V State in ValidateOnly and Apply preflight.
+3. hv-remove uses requested VM name as AD computer name independently of selected VM display name; invalid AD names skip AD cleanup. -ADNameToCleanUp explicitly overrides AD name for exactly one -VMName; incompatible with -KeepADAccount, -VMListFile and -ResetADAccount. -KeepADAccount and -VMListFile are also incompatible.
+4. Updated public command help, including exact VMListFile format and examples.
+5. Consolidated top-level historical text release notes into this single file.
+
+TEST STATUS
+-----------
+Static/source checks only in this environment. Windows PowerShell 5.1, Hyper-V and AD integration tests MUST be run in your environment before promotion. Use Step 2.0 as rollback baseline.

@@ -1,0 +1,86 @@
+﻿===Hyper-V VM Creation Task Template v3.6===
+
+#-----VM's TAGS DESCRIPTION---------------------------------------------------------------------------------------------------
+#TAG_Category: TAG_Value(s) separated by semicolons
+#App:	ERP
+#Role:	DB;WEB
+#Run hv-tags -Help for additional information
+
+#-----VM's PARAMETERS DESCRIPTION---------------------------------------------------------------------------------------------
+
+#0 Destination:             IGNORED IF [1] INPLACE SPECIF
+
+#1 C, InPlace:				TO SPECIFY ACTUAL DRIVE OF A VM TO MAP, IGNORES ALL OTHER OPTIONS EXCEPT [5]
+#2 C, Source:				TO COPY FROM SOURCE, IGNORED IF [1] IS SPECIFIED
+#3 C, Move Src (Move):		TO MOVE SOURCE INSTEAD OF COPYING, IF [2] EMPTY, IGNORED
+#4 C, Size:					NEW DRIVE SIZE
+#5 C, New Size Incr.to:	    IF > INPLACE [1] OR SOURCE [2],DRIVE IS INCREASED
+#6 C, If Fixed (Y):			FOR [4] NEW DRIVES ONLY
+#7 C, V.Disks Folder:		SUBFOLDER IN VM FOLDER, IF [1] IGNORED
+#8 C, Dest.Override: 		SPECIFY VHDX LOCATION DIRECTLY, TO OVERRIDE DEFAULT FOLDER AND SUBFOLDER [7], IF [1] IGNORED
+
+#SOURCE
+# C:\ClusterStorage\Volume4\000_TEMPLATES\W2025_Template\W2025_Template.vhdx
+#-----------------------------------------------------------------------------------------------------------------------------
+
+========VM Name========
+
+VM Name: HVTSTVM055
+VM Description: - My
+--------VM TAGs--------
+Scope:  IT
+Env:
+App:
+Role:
+Contact:
+
+========VM Name========
+
+VM Name: HVTSTVM056
+VM Description: - My
+--------VM TAGs--------
+Scope:  IT
+Env:    INF
+
+
+
+-----VM Parameters-----
+
+Hyper-V Host:       HVTSTCLUSTER6
+Clustered:          Yes
+Destination:	    C:\ClusterStorage\Volume1\
+Generation:         2
+Enable S.Boot:	    Yes
+
+
+
+C, InPlace:        
+C, Source:         C:\ClusterStorage\Volume1\000_TEMPLATES\W2025_Standard_Template_Sysprepped\NATMPLT001_C.vhdx 
+C, Move Src (Move):
+C, Size:
+C, New Size Incr.to:               
+C, If Fixed (Y):
+C, V.Disks Folder:
+C, Dest.Override:
+
+D, InPlace:
+D, Source:          
+D, Move Src (Move):
+D, Size:
+D, New Size Incr.to:               
+D, If Fixed (Y):
+D, V.Disks Folder:
+D, Dest.Override:  
+
+CPU Number:	        2
+Memory Size:	    4096
+Enable Dyn.RAM:	    Yes
+Min RAM:	        512
+Max RAM:	        8192
+Time Sync:          Off
+Guest Services:	    On
+
+Network_1:	        TST_Network
+VLAN_1:             24    
+
+

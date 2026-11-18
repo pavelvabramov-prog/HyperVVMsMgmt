@@ -1,0 +1,11 @@
+# Default: preserve LF for all text files
+* text=auto eol=lf
+
+# PowerShell source files
+*.ps1  text eol=lf
+*.psm1 text eol=lf
+*.psd1 text eol=lf
+
+# Markdown and JSON
+*.md   text eol=lf
+*.json text eol=lf

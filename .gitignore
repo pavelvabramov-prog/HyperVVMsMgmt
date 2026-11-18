@@ -1,0 +1,25 @@
+# PowerShell temporary files
+*.tmp
+*.bak
+*.log
+
+# PowerShell transcripts
+PowerShell_transcript.*
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Windows temporary files
+Thumbs.db
+Desktop.ini
+
+# Local development files
+*.local.ps1
+*.local.json
+
+# Test results
+TestResults/
+coverage/

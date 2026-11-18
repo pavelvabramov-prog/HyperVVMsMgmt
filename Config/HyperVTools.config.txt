@@ -1,0 +1,17 @@
+# HyperVVMsMgmt settings. Edit this file before use.
+# Empty command-specific log paths fall back to LogPath.
+[General]
+DefaultDomain=CONTOSO.LOCAL
+
+[Logging]
+LogPath=C:\HyperVVMsMgmt\Logs
+CreateLogPath=
+ConfigLogPath=
+RemoveLogPath=
+
+[VMNaming]
+ShortNamePattern=^[A-Za-z0-9]{10}$
+
+[Tags]
+WindowsRegistryPath=HKLM:\SOFTWARE\Tags\ServerMetadata
+LinuxMetadataFile=/etc/tags-server-metadata

@@ -1,0 +1,136 @@
+﻿===Hyper-V VM Creation Task Template v3.9===
+
+#-----VM's TAGS DESCRIPTION---------------------------------------------------------------------------------------------------
+#TAG_Category: TAG_Value(s) separated by semicolons
+#App:	CRM
+#Role:	DB;WEB
+#Run hv-tags -Help for additional information
+
+#-----VM's PARAMETERS DESCRIPTION---------------------------------------------------------------------------------------------
+
+#FolderNameOverride:        Overrides VM folder name under Destination. Allowed only for a SINGLE VM per VM Parameters section.
+
+#0 Destination:             Base destination folder. Ignored if [1] is specified.
+#1 C, InPlace:              Uses an existing VHDX directly. Overrides all other disk options except [5].
+#2 C, Source:               Copies an existing VHDX. Ignored if [1] is specified.
+#3 C, Move Src (Move):      Moves the source VHDX instead of copying it. Requires [2].
+#4 C, Size:                 Size of a new VHDX.
+#5 C, New Size Incr.to:     Expands an existing or copied VHDX to the specified size. Ignored for new disks [4].
+#6 C, If Fixed (Y):         Creates a fixed-size VHDX when using [4].
+#7 C, V.Disks Folder:       VHDX subfolder within the VM folder. Ignored if [1] is specified.
+#8 C, Dest.Override:        Overrides the default VHDX destination path and [7]. Ignored if [1] is specified.
+
+#SOURCE EXAMPLE:            C:\ClusterStorage\Volume4\000_TEMPLATES\W2025_Template\W2025_Template.vhdx
+
+#-----------------------------------------------------------------------------------------------------------------------------
+
+========VM Names========
+
+VM Name: VMName1
+VM Description: - VM Description 1
+--------VM TAGs--------
+Scope:  IT
+Env:
+App:
+Role:
+Contact:
+-----------------------
+
+VM Name: VMName2
+VM Description: - VM Description 2
+--------VM TAGs--------
+Scope:  IT
+Env:    INF
+-----------------------
+
+========================
+-----VM Parameters-----
+
+Hyper-V Host:       HVHost
+Clustered:          Yes
+Destination:	    C:\ClusterStorage\Volume1\
+FolderNameOverride: 
+Generation:         2
+Enable S.Boot:	    Yes
+
+
+
+C, InPlace:        
+C, Source:          C:\Source\Source.vhdx 
+C, Move Src (Move):
+C, Size:
+C, New Size Incr.to:               
+C, If Fixed (Y):
+C, V.Disks Folder:
+C, Dest.Override:
+
+D, InPlace:
+D, Source:          
+D, Move Src (Move):
+D, Size:
+D, New Size Incr.to:               
+D, If Fixed (Y):
+D, V.Disks Folder:
+D, Dest.Override:  
+
+CPU Number:	        2
+Memory Size:	    4096
+Enable Dyn.RAM:	    Yes
+Min RAM:	        512
+Max RAM:	        8192
+Time Sync:          Off
+Guest Services:	    On
+
+Network_1:	        Your_Network
+VLAN_1:             10    
+
+
+========VM Names========
+
+VM Name: VMName3
+VM Description: - VM Description 3
+--------VM TAGs--------
+Scope:  IT
+Env:    INF
+
+========================
+
+-----VM Parameters-----
+
+Hyper-V Host:       VMHost
+Clustered:          Yes
+Destination:	    C:\ClusterStorage\Volume1\
+FolderNameOverride: HVTSTVM057_NEW
+Generation:         2
+Enable S.Boot:	    Yes
+
+
+
+C, InPlace:        
+C, Source:          C:\Source\Source.vhdx 
+C, Move Src (Move):
+C, Size:
+C, New Size Incr.to:               
+C, If Fixed (Y):
+C, V.Disks Folder:
+C, Dest.Override:
+
+D, InPlace:
+D, Source:          
+D, Move Src (Move):
+D, Size:
+D, New Size Incr.to:               
+D, If Fixed (Y):
+D, V.Disks Folder:
+D, Dest.Override:  
+
+CPU Number:	        2
+Memory Size:	    4096
+Enable Dyn.RAM:	    Yes
+Min RAM:	        512
+Max RAM:	        8192
+Time Sync:          Off
+Guest Services:	    On
+
+Network_1:	        Your_Network
+VLAN_1:                 
