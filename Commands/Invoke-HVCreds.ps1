@@ -7,8 +7,11 @@
 function Invoke-HVCreds {
     [CmdletBinding()]
     param(
-        [string]$DefaultDomain
+        [string]$DefaultDomain,
+        [switch]$Help
     )
+
+    if ($Help -or $DefaultDomain -eq '/?' -or ($args -contains '/?')) { Show-HVUsageHelp -Command Creds; return }
 
     if (-not $PSBoundParameters.ContainsKey('DefaultDomain')) {
         $DefaultDomain = (Get-HVModuleConfiguration).DefaultDomain

@@ -84,14 +84,15 @@ function Invoke-HyperVTagOperation {
 
         [string[]]$RequestedTags,
 
-        [switch]$ValidateOnly
+        [switch]$ValidateOnly,
+        $PreResolved
     )
 
-    $Resolved = Resolve-HVExistingVM `
+    $Resolved = if ($null -ne $PreResolved) { $PreResolved } else { Resolve-HVExistingVM `
         -VMName $VMName `
         -HyperVHost $HyperVHost `
         -ValidateOnly:$ValidateOnly `
-        -ReadOnly:($Action -eq 'Get')
+        -ReadOnly:($Action -eq 'Get') }
 
     if ($Resolved.Status -eq 'Skipped') {
         return [pscustomobject]@{

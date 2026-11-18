@@ -96,8 +96,16 @@ hv-tags -Action Get -ComputerName "ExampleVM" -Type HyperV -HyperVHost "ExampleH
 Example: add an environment tag.
 
 ```powershell
-hv-tags -Action Add -ComputerName "ExampleVM" -Type HyperV -HyperVHost "ExampleHost" -Tags "TAG_ENV:TEST" -ValidateOnly
+hv-tags -Action Add -ComputerName "ExampleVM" -Type HyperV -HyperVHost "ExampleHost" -Tags "Env:TEST" -ValidateOnly
 ```
+
+## Target selection and safety
+
+When a short VM name resolves to multiple candidates, commands that support interactive selection show candidate VM names for confirmation. `hv-remove` and `hv-tags` can accept multiple selected candidates; `hv-config` resolves a single target for each configured VM. Target selection tracks VM identity (GUID) to avoid accidentally processing overlapping candidates. Always inspect the selected VM names, cluster/host and storage before Apply.
+
+`hv-remove -KeepADAccount` prevents AD computer-account modification during removal. Use command help to review AD cleanup options before removing VMs.
+
+`hv-tags` uses categories and values from `Config/ServerTags.config.txt`. The default generic catalog includes `Scope`, `Env`, `App`, `Role`, and `Contact`; use e.g. `Env:TEST` (not `TAG_ENV:TEST`). Custom categories/values require `-AllowCustomTags`, except categories explicitly configured for unrestricted values.
 
 ## Configuration
 
@@ -158,9 +166,9 @@ Some tests may require Hyper-V infrastructure or elevated permissions.
 
 The project uses version numbers in the format `MAJOR.MINOR.PATCH`.
 
-Initial public release: **v1.1.0**
+Initial public release: **v1.1.0**. Current release: **v1.1.2**.
 
-Future releases and change descriptions will be available through GitHub Releases.
+See [CHANGELOG.md](CHANGELOG.md) for changes since v1.1.0.
 
 ## Disclaimer
 

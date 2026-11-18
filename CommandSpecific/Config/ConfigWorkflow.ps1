@@ -1198,10 +1198,49 @@ if ($ADCheckMode -eq "GuestOnly") {
 # to the owning Hyper-V node, including PowerShell Direct operations.
 # ------------------------------------------------------------
 if (-not $global:HVGC_ExecutionHost) {
-    Import-Module Hyper-V -ErrorAction Stop
     $configFullPath = (Resolve-Path -LiteralPath $ConfigFile -ErrorAction Stop).ProviderPath
     $allSections = @(Get-ConfigSections $configFullPath)
     if ($allSections.Count -eq 0) { throw 'No VM sections found in configuration.' }
+
+    # Name-only preflight: validate every configured short VM name before importing
+    # Hyper-V, discovering hosts/VMs, prompting for selections, or checking credentials.
+    # This deliberately does not validate or restrict actual Hyper-V display names.
+    # Reuse the existing Config name-format rule; do not change matching semantics.
+    $configNames = @{}
+    $nameErrors = New-Object 'System.Collections.Generic.List[string]'
+    $sectionNumber = 0
+    foreach ($section in $allSections) {
+        $sectionNumber++
+        $short = ([string]$section.General['VM Name']).Trim()
+        if ([string]::IsNullOrWhiteSpace($short)) {
+            $nameErrors.Add(("Section {0}: VM Name is missing." -f $sectionNumber))
+            continue
+        }
+        try {
+            Test-BaseVMNameFormat -Name $short -Context 'Config section'
+        }
+        catch {
+            $nameErrors.Add(("Section {0}: {1}" -f $sectionNumber, $_.Exception.Message))
+        }
+        if ($configNames.ContainsKey($short)) {
+            $nameErrors.Add(("Section {0}: Duplicate VM short name '{1}' (first used in section {2})." -f $sectionNumber, $short, $configNames[$short]))
+        }
+        else {
+            $configNames[$short] = $sectionNumber
+        }
+    }
+    if ($nameErrors.Count -gt 0) {
+        Write-Host 'ERROR: Configuration VM name validation failed:' -ForegroundColor Red
+        foreach ($nameError in $nameErrors) {
+            Write-Host (" - {0}" -f $nameError) -ForegroundColor Yellow
+        }
+        Write-Host 'No changes made.' -ForegroundColor Yellow
+        return
+    }
+
+    Import-Module Hyper-V -ErrorAction Stop
+    $configSelectedIds = @{}
+
 
     $Script:LaunchComputer = $env:COMPUTERNAME
     $Script:LaunchLogPath = New-ConfigLogFilePath -ConfigFilePath $configFullPath
@@ -1237,6 +1276,7 @@ if (-not $global:HVGC_ExecutionHost) {
             Write-Warning "VM '$baseName': found 0 matching VM(s) across target nodes. Skipping (no changes)."
             continue
         }
+        $hits = @(Sort-HVSelectionCandidates -Candidates $hits -InputNames @($allSections | ForEach-Object { [string]$_.General['VM Name'] }) -RequestedName $baseName)
         $requiresSelection = ($hits.Count -gt 1)
         if ($requiresSelection) {
             Write-Host "Candidate Hyper-V VM objects for '$baseName' across target nodes:" -ForegroundColor Yellow
@@ -1262,6 +1302,10 @@ if (-not $global:HVGC_ExecutionHost) {
         } else {
             $selected = $hits[0]
         }
+        if ($configSelectedIds.ContainsKey([string]$selected.Id)) {
+            throw "VM GUID '$($selected.Id)' was selected for more than one configuration entry. No changes started."
+        }
+        $configSelectedIds[[string]$selected.Id] = $true
         $selectedNode = [string]$selected.Node
         Write-Host ("VM '{0}' resolved on '{1}' as '{2}' (VM ID {3})." -f $baseName,$selectedNode,$selected.Name,$selected.Id) -ForegroundColor Cyan
         $plans += [pscustomobject]@{ VMName=$baseName; Node=$selectedNode; Cluster=$clusterName; VMId=[string]$selected.Id }
@@ -1728,6 +1772,9 @@ try {
                 # Approved matrix: a single ShortNameMatch processes automatically.
                 # MultipleShortNameMatches require selection and confirmation.
                 if ($vmResolution.RequiresConfirmation) {
+                    # Match the initial file-priority ordering in the remote/configuration phase.
+                    $vmResolution.Candidates = @(Sort-HVSelectionCandidates -Candidates @($vmResolution.Candidates) `
+                        -InputNames @($global:HVGC_VMNames) -RequestedName $BaseVMName)
                     Show-VMTargetCandidates -BaseVMName $BaseVMName -Candidates $vmResolution.Candidates
 
                     # Both modes select a concrete VM. Only Apply requires a

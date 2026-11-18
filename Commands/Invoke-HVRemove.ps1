@@ -30,19 +30,19 @@ if ($PSBoundParameters.ContainsKey('ADNameToCleanUp')) {
     if ($KeepADAccount -or $PSBoundParameters.ContainsKey('VMListFile')) {
         throw '-ADNameToCleanUp cannot be used with -KeepADAccount or -VMListFile. No changes made.'
     }
-    if ($ResetADAccount) { throw '-ADNameToCleanUp cannot be used with -ResetADAccount. No changes made.' }
     if ($VMName.Count -ne 1) { throw '-ADNameToCleanUp requires exactly one -VMName. No changes made.' }
     if ($ADNameToCleanUp -notmatch '^[A-Za-z0-9][A-Za-z0-9-]{0,14}$' -or $ADNameToCleanUp -match '^[0-9]+$') {
         throw '-ADNameToCleanUp must be a valid AD computer sAMAccountName (1..15 characters, letters/digits/hyphens). No changes made.'
     }
 }
-if ($KeepADAccount -and $PSBoundParameters.ContainsKey('VMListFile')) {
-    throw '-KeepADAccount and -VMListFile cannot be used together. No changes made.'
-}
 
 
 # Load the module-owned, text-based configuration.
 $settings = Get-HVModuleConfiguration
+# The configured short-name regex is the sole source for implicit AD identity.
+$adShortNamePattern = [string]$settings.VMNaming.ShortNamePattern
+if ([string]::IsNullOrWhiteSpace($adShortNamePattern)) { throw 'VMNaming.ShortNamePattern is missing from module configuration.' }
+try { $null = [regex]::new($adShortNamePattern) } catch { throw "Invalid configured VMNaming.ShortNamePattern: $($_.Exception.Message)" }
 $logDir = if (-not [string]::IsNullOrWhiteSpace($settings.RemoveLogPath)) { $settings.RemoveLogPath } else { $settings.LogPath }
 if ([string]::IsNullOrWhiteSpace($logDir) -or -not [System.IO.Path]::IsPathRooted($logDir)) { throw 'Invalid configured Remove log directory.' }
 if (-not (Test-Path -LiteralPath $logDir -PathType Container)) { New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null }
@@ -70,7 +70,7 @@ try {
     } else {
         if (-not $VMName -or @($VMName).Count -eq 0) { throw 'Invalid or missing parameter: specify -VMName and -TargetHost, or -VMListFile. Use hv-remove -Help for help.' }
         if ([string]::IsNullOrWhiteSpace($TargetHost)) { throw 'Invalid or missing parameter: -TargetHost is required with -VMName. Use hv-remove -Help for help.' }
-        $removalRequests = @($VMName | ForEach-Object { [pscustomobject]@{Name=([string]$_).Trim();Host=$TargetHost.Trim();Line=0} })
+        $removalRequests = @($VMName | ForEach-Object { [pscustomobject]@{Name=([string]$_).Trim();Host=$TargetHost.Trim();ADName='';Line=0} })
     }
     if (-not $removalRequests) { throw 'The VM removal list is empty.' }
     $keys = @{}
@@ -82,7 +82,7 @@ try {
     }
     Write-Host ("VMs to Remove : {0}" -f $removalRequests.Count)
     Write-Host ("Mode          : {0}" -f $(if($ValidateOnly){'ValidateOnly'}else{'Apply'}))
-    Write-Host ("AD Action     : {0}" -f $(if($KeepADAccount){'Keep'}elseif($ResetADAccount){'Reset'}else{'Delete'}))
+    Write-Host ("AD Action     : {0}" -f $(if($KeepADAccount){'KEEP'}elseif($ResetADAccount){'RESET'}else{'DELETE'}))
 } catch {
     Write-Host ("ERROR: {0}" -f $_.Exception.Message) -ForegroundColor Red
     Write-Host 'No changes made.' -ForegroundColor Yellow
@@ -173,6 +173,25 @@ try {
 Import-Module Hyper-V -ErrorAction Stop
 $preflight = New-Object 'System.Collections.Generic.List[object]'
 $seenIds = @{}
+$selectionContext = New-HVSelectionContext
+# Queue AD ambiguity warnings so a subsequent duplicate-entry warning is printed first.
+# Confirmations remain in the complete preflight, before any destructive operation.
+$pendingADWarnings = New-Object 'System.Collections.Generic.List[object]'
+$shownADWarnings = @{}
+$flushADWarnings = {
+    foreach ($warningItem in $pendingADWarnings.ToArray()) {
+        if (-not $shownADWarnings.ContainsKey($warningItem.Target)) {
+            Write-Warning ("Resolved AD account '{0}' may be used by any of the following Hyper-V VMs: {1}" -f $warningItem.Target, ($warningItem.Names -join ', '))
+            if ($ValidateOnly) {
+                $actionLabel = if ($ResetADAccount) { 'RESET' } else { 'DELETE' }
+                Write-Host "ValidateOnly: $actionLabel requires explicit confirmation in Apply mode; no changes made." -ForegroundColor Yellow
+            }
+            $shownADWarnings[$warningItem.Target] = $true
+        }
+    }
+    if ($pendingADWarnings.Count -gt 0) { Write-Host '' }
+    $pendingADWarnings.Clear()
+}
 foreach ($request in $removalRequests) {
     $target = $request.Host
     $cluster = $null
@@ -207,37 +226,88 @@ foreach ($request in $removalRequests) {
     if ($uniqueHits.Count -eq 0) {
         throw "No VM found for '$($request.Name)' on '$target'. No changes made."
     }
-    $chosen = $null
-    if ($uniqueHits.Count -eq 1) {
-        $chosen = $uniqueHits[0]
-        Write-Host "Automatically resolved '$($request.Name)' to '$($chosen.VM.Name)' ($($chosen.Match)) on $($chosen.Node)."
-    } else {
-        Write-Host "Candidate VMs for '$($request.Name)' on '$target':" -ForegroundColor Cyan
-        for ($i=0; $i -lt $uniqueHits.Count; $i++) {
-            $h = $uniqueHits[$i]
-            Write-Host (" [{0}] {1} | Host={2} | Match={3} | State={4} | Id={5}" -f ($i+1),$h.VM.Name,$h.Node,$h.Match,$h.VM.State,$h.VM.Id)
-        }
-        $choice = Read-Host "Select VM by number [1-$($uniqueHits.Count)], or Q to cancel the entire batch"
-        if ($choice -match '^[Qq]$') { throw 'VM selection cancelled. No removals started.' }
-        $number = 0
-        if (-not [int]::TryParse($choice,[ref]$number) -or $number -lt 1 -or $number -gt $uniqueHits.Count) {
-            throw "Invalid VM selection '$choice'. No removals started."
-        }
-        $chosen = $uniqueHits[$number-1]
-        if (-not $ValidateOnly) {
-            Write-Warning "Selected VM requires explicit confirmation: '$($chosen.VM.Name)' on '$($chosen.Node)' (Match=$($chosen.Match); ID=$($chosen.VM.Id))."
-            $answer = Read-Host 'Continue with this exact VM? Enter Y to confirm, anything else cancels the entire batch'
-            if ($answer -cne 'Y' -and $answer -cne 'y') { throw 'VM selection not confirmed. No removals started.' }
+    $candidateRows = @($uniqueHits | ForEach-Object {
+        [pscustomobject]@{ Id=[string]$_.VM.Id; Name=[string]$_.VM.Name; Node=[string]$_.Node; Kind=[string]$_.Match; State=$_.VM.State; Original=$_ }
+    })
+    # Preserve adjacency of skip warnings and the preceding AD ambiguity warning.
+    $isOverlappingEntry = @($candidateRows | Where-Object {
+        $selectionContext.Selected.ContainsKey([string]$_.Id) -or
+        $selectionContext.Excluded.ContainsKey([string]$_.Id)
+    }).Count -gt 0
+    if (-not $isOverlappingEntry -and $pendingADWarnings.Count -gt 0) { & $flushADWarnings }
+    $selection = Resolve-HVBatchSelection -RequestedName $request.Name -Candidates $candidateRows `
+        -PermittedSelection Multiple -SelectionContext $selectionContext `
+        -ValidateOnly:$ValidateOnly -ConfirmSelection -CancelEntireBatch `
+        -InputNames @($removalRequests | Where-Object { $_.Host -ieq $request.Host } | ForEach-Object { [string]$_.Name })
+    if ($selection.Status -eq 'Skipped') {
+        # This message follows the resolver's INCLUDED/EXCLUDED skip warning.
+        if ($pendingADWarnings.Count -gt 0) { & $flushADWarnings }
+        continue
+    }
+    if (-not $KeepADAccount -and $candidateRows.Count -gt 1) {
+        $adOverride = if ($PSBoundParameters.ContainsKey('ADNameToCleanUp')) { $ADNameToCleanUp } else { $request.ADName }
+        $warningADTarget = if (-not [string]::IsNullOrWhiteSpace($adOverride)) {
+            $adOverride.Trim().ToUpperInvariant()
+        } elseif ([regex]::IsMatch($request.Name, "\A(?:$adShortNamePattern)\z")) {
+            $request.Name.Trim().ToUpperInvariant()
+        } else { $null }
+        # Warn if a selected VM differs from the resolved AD target.
+        if ($warningADTarget -and @($selection.Selected | Where-Object { $_.Name -ine $warningADTarget }).Count -gt 0) {
+            $pendingADWarnings.Add([pscustomobject]@{
+                Target = $warningADTarget
+                Names = @($candidateRows | Select-Object -ExpandProperty Name -Unique)
+            }) | Out-Null
         }
     }
-    $vmId = [string]$chosen.VM.Id
-    if ($seenIds.ContainsKey($vmId)) { throw "VM '$($request.Name)' is listed more than once under different names/targets. No removals started." }
-    $seenIds[$vmId] = $true
-    $preflight.Add([pscustomobject]@{Name=$request.Name;Host=$target;Resolved=$chosen.VM.Name;Node=$chosen.Node;VMId=$vmId;Match=$chosen.Match;Type=$targetType;State=[string]$chosen.VM.State}) | Out-Null
+    foreach ($item in @($selection.Selected)) {
+        $chosen = $item.Original
+        $vmId = [string]$chosen.VM.Id
+        if ($seenIds.ContainsKey($vmId)) { throw "VM GUID '$vmId' selected twice. No removals started." }
+        $seenIds[$vmId] = $true
+        $preflight.Add([pscustomobject]@{Name=$request.Name;Host=$target;Resolved=$chosen.VM.Name;Node=$chosen.Node;VMId=$vmId;Match=$chosen.Match;Type=$targetType;State=[string]$chosen.VM.State;ADName=$request.ADName}) | Out-Null
+    }
 }
+if ($pendingADWarnings.Count -gt 0) { & $flushADWarnings }
+# Build the AD safety plan from selected VM identities before any destructive work.
+# A shared AD target or a name mismatch is a warning, not proof of AD ownership.
+$adPlans = New-Object 'System.Collections.Generic.List[object]'
+foreach ($plannedVM in $preflight) {
+    $override = if ($PSBoundParameters.ContainsKey('ADNameToCleanUp')) { $ADNameToCleanUp } else { $plannedVM.ADName }
+    $adTarget = if (-not [string]::IsNullOrWhiteSpace($override)) {
+        $override.Trim().ToUpperInvariant()
+    } elseif ([regex]::IsMatch($plannedVM.Name, "\A(?:$adShortNamePattern)\z")) {
+        $plannedVM.Name.Trim().ToUpperInvariant()
+    } else { $null }
+    if ($adTarget) {
+        $adPlans.Add([pscustomobject]@{Target=$adTarget;VM=$plannedVM;Mismatch=($plannedVM.Resolved -ine $adTarget)}) | Out-Null
+    }
+}
+$adActionCompleted = @{}
 Write-Host "`n================ VM LIST ================" -ForegroundColor Cyan
 $preflight | Format-Table Name,Host,Type,Resolved,Node,State -AutoSize | Out-Host
+if ($preflight.Count -eq 0) { throw "No VMs selected for removal. No changes made." }
 Write-Host ("All {0} VM(s) identified successfully." -f $preflight.Count) -ForegroundColor Green
+# Confirm AD ambiguity only after the complete batch is resolved. This guarantees
+# that declining confirmation cancels the whole batch before any VM changes.
+if (-not $KeepADAccount) {
+    foreach ($adGroup in @($adPlans | Group-Object Target)) {
+        $affected = @($adGroup.Group)
+        if ($affected.Count -le 1 -and -not $affected[0].Mismatch) { continue }
+        $actionName = if ($ResetADAccount) { 'RESET' } else { 'DELETE' }
+        if (-not $shownADWarnings.ContainsKey($adGroup.Name)) {
+            $names = @($affected | ForEach-Object { $_.VM.Resolved } | Select-Object -Unique)
+            Write-Warning ("Resolved AD account '{0}' may be used by any of the following Hyper-V VMs: {1}" -f $adGroup.Name, ($names -join ', '))
+            if ($ValidateOnly) { Write-Host "ValidateOnly: $actionName requires explicit confirmation in Apply mode; no changes made." -ForegroundColor Yellow }
+        }
+        if (-not $ValidateOnly) {
+            $adAnswer = Read-Host "Are you sure you want to $actionName AD account '$($adGroup.Name)'? [y/N]"
+            if ($adAnswer -cne 'Y' -and $adAnswer -cne 'y') {
+                throw "AD action not confirmed for '$($adGroup.Name)'. Entire batch cancelled before changes."
+            }
+        }
+    }
+}
+
 if ($ValidateOnly) { Write-Host 'No changes made (ValidateOnly).' -ForegroundColor Green }
 else { Write-Host 'Preflight complete. No changes made yet.' -ForegroundColor Green }
 if (-not $ValidateOnly -and -not $Y) {
@@ -253,7 +323,8 @@ foreach ($request in $preflight) {
     if (Get-Module -ListAvailable FailoverClusters) {
         try { $clusterName = (Get-Cluster -Name $TargetHost -ErrorAction Stop -WarningAction SilentlyContinue).Name; $nodes = @(Get-ClusterNode -Cluster $clusterName -WarningAction SilentlyContinue | Where-Object State -eq 'Up' | Select-Object -ExpandProperty Name) } catch { $clusterName = $null }
     }
-    Write-Host "`n========== $name ==========" -ForegroundColor Cyan
+    Write-Host "`n========== $($request.Resolved) ==========" -ForegroundColor Cyan
+    if ($request.Resolved -ine $name) { Write-Host "Requested VM : $name" }
     # Recheck selected identity and owning node, not the original short-name pattern.
     # Do not follow migrations after operator confirmation.
     $node = $request.Node
@@ -280,21 +351,28 @@ foreach ($request in $preflight) {
     $isLocalNode = ($node -ieq $env:COMPUTERNAME -or $node -ieq "$env:COMPUTERNAME.$env:USERDNSDOMAIN" -or $node -ieq 'localhost' -or $node -eq '.')
     $externalAD = $true
     # AD identity is independent of the resolved Hyper-V display name.
-    # Use the caller's short VM name, unless a single-VM explicit override was supplied.
-    $adComputerName = if ($PSBoundParameters.ContainsKey('ADNameToCleanUp')) { $ADNameToCleanUp.Trim().ToUpperInvariant() } else { $name.Trim().ToUpperInvariant() }
-    if ($adComputerName -notmatch '^[A-Z0-9][A-Z0-9-]{0,14}$' -or $adComputerName -match '^[0-9]+$') {
-        Write-Warning "Requested VM name '$name' is not a valid AD computer account name; AD cleanup will be skipped. Use -ADNameToCleanUp with a single VM to specify an account."
-        $adComputerName = $null
+    # An explicit per-row ADName (or single-VM CLI override) takes precedence.
+    # Otherwise the REQUESTED VM name must match the configured short-name
+    # regex in its entirety. Never extract a substring from a display name.
+    $explicitADName = if ($PSBoundParameters.ContainsKey('ADNameToCleanUp')) { $ADNameToCleanUp } else { $request.ADName }
+    $adComputerName = $null
+    if (-not [string]::IsNullOrWhiteSpace($explicitADName)) {
+        $adComputerName = $explicitADName.Trim().ToUpperInvariant()
+    } elseif ([regex]::IsMatch($name, "\A(?:$adShortNamePattern)\z")) {
+        $adComputerName = $name.Trim().ToUpperInvariant()
+    } else {
+        Write-Warning "Requested VM name '$name' does not match configured VMNaming.ShortNamePattern; AD cleanup will be skipped. Use -ADNameToCleanUp for a single VM or the ADName column in -VMListFile to specify an account."
     }
-    if ($adComputerName) { Write-Host "AD cleanup target : $adComputerName $(if ($PSBoundParameters.ContainsKey('ADNameToCleanUp')) { '(explicit override)' } else { '(requested VM name)' })" }
     if ($externalAD -and $adComputerName) {
         $adStatus = Get-JumpHostADStatus -ComputerName $adComputerName
-        Write-Host "AD Account   : $adComputerName ($($adStatus.Status)) | $($adStatus.DN)"
+        $adMode = if ($KeepADAccount) { 'KEEP' } elseif ($ResetADAccount) { 'RESET' } else { 'DELETE' }
+        $adSource = if ($explicitADName) { 'Explicit ADName' } else { 'Requested VM name' }
+        Write-Host "AD Account   : $adComputerName ($($adStatus.Status)) | Source: $adSource | AD Action: $adMode"
         if ($adStatus.Error) { Write-Warning "AD lookup detail: $($adStatus.Error)" }
     }
     if (-not $adComputerName) { $adStatus = [pscustomobject]@{Status='Skipped';DN=$null;Error='Uncertain AD identity'} }
     # Always validate on target first; original v2.2 validation is read-only.
-    Write-Host "`nInspecting VM and storage: $name on $node (read-only)..." -ForegroundColor Cyan
+    Write-Host "`nInspecting VM and storage: $($request.Resolved) on $node (read-only)..." -ForegroundColor Cyan
     Invoke-HVTiming -Action Measure -TimingLabel 'VM and storage inspection total' -Target $node -ScriptBlock { Invoke-RemovalEngine -Node $node -Name $name -ExpectedVMId $request.VMId -ExpectedVMName $request.Resolved -DryRun $true -SkipPrimary $false -ForceFolders $false -RoleHandled $false -ExternalAD $externalAD -EngineCode $engine -InspectionContext $(if ($ValidateOnly) { 'Validation' } else { 'PreRemoval' }) }
     Write-Host 'VM and storage inspection completed.' -ForegroundColor Green
     if ($ValidateOnly) { Write-Host 'No changes made (ValidateOnly).' -ForegroundColor Yellow; continue }
@@ -334,11 +412,14 @@ foreach ($request in $preflight) {
         } else {
             # AD identity must have been derived uniquely; no additional confirmation prompt.
             if (-not $adComputerName) {
-                Write-Warning 'AD cleanup skipped: requested VM name is not a valid AD computer account name.'
+                Write-Warning 'AD cleanup skipped: no explicit AD name and requested VM name does not match configured short-name pattern.'
             } elseif ($KeepADAccount) {
                 Write-Host "AD computer '$adComputerName' preserved unchanged (-KeepADAccount)." -ForegroundColor Green
+            } elseif ($adActionCompleted.ContainsKey($adComputerName)) {
+                Write-Host "AD cleanup skipped: '$adComputerName' already processed by an earlier selected VM." -ForegroundColor Yellow
             } else {
                 Invoke-HVTiming -Action Measure -TimingLabel 'AD cleanup' -Target $adComputerName -ScriptBlock { Remove-JumpHostADComputer -ComputerName $adComputerName -Status $adStatus -ResetAccount ([bool]$ResetADAccount) }
+                $adActionCompleted[$adComputerName] = $true
             }
         }
     }

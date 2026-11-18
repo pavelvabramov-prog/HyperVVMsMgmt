@@ -77,14 +77,60 @@ CSV preflight validates every row before any server is processed.
             Write-Warning "CSV preflight failed (no servers processed): $($_.Exception.Message)"
             return [pscustomobject]@{ Status='Failed'; Changed=$false; Detail=$_.Exception.Message }
         }
+        # Resolve ALL Hyper-V CSV rows before any writes, including physical rows.
+        $selectionContext = New-HVSelectionContext
+        $batchPlans = New-Object 'System.Collections.Generic.List[object]'
+        try {
+            foreach ($entry in $entries) {
+                if ($entry.TargetHost -in @('PhysicalWindows','PhysicalLinux')) {
+                    $batchPlans.Add([pscustomobject]@{Entry=$entry;Resolved=$null;SkipReason=''})
+                    continue
+                }
+                $resolvedRows = @(Resolve-HVExistingVM -VMName $entry.ServerName -HyperVHost $entry.TargetHost `
+                    -PermittedSelection Multiple -SelectionContext $selectionContext -ValidateOnly:$ValidateOnly -ReadOnly:($Action -eq 'Get') `
+                    -InputNames @($entries | Where-Object { $_.TargetHost -ieq $entry.TargetHost } | ForEach-Object { [string]$_.ServerName }))
+                if ($resolvedRows.Count -eq 1 -and $resolvedRows[0].Status -in @('Skipped','NotFound')) {
+                    $batchPlans.Add([pscustomobject]@{Entry=$entry;Resolved=$null;SkipReason=$resolvedRows[0].Reason})
+                    continue
+                }
+                foreach ($resolved in $resolvedRows) {
+                    $batchPlans.Add([pscustomobject]@{Entry=$entry;Resolved=$resolved;SkipReason=''})
+                }
+            }
+        } catch {
+            Write-Warning "VM selection preflight failed; no tags changed: $($_.Exception.Message)"
+            return [pscustomobject]@{Status='Failed';Changed=$false;Detail=$_.Exception.Message}
+        }
+        $selectedPlanCount = @($batchPlans | Where-Object { -not $_.SkipReason }).Count
+        $skippedEntryCount = @($batchPlans | Where-Object { $_.SkipReason }).Count
+        Write-Host 'Batch preflight completed:'
+        Write-Host (' Input entries   : {0}' -f $entries.Count)
+        Write-Host (' Selected targets: {0}' -f $selectedPlanCount)
+        Write-Host (' Skipped entries : {0}' -f $skippedEntryCount)
         $counts = @{ Success=0; Failed=0; Skipped=0 }
-        foreach ($entry in $entries) {
+        foreach ($plan in $batchPlans) {
+            $entry = $plan.Entry
+            if ($plan.SkipReason) {
+                $counts.Skipped++
+                if ($plan.SkipReason -notin @('ExcludedByEarlierSelection','AlreadySelectedByEarlierEntry')) {
+                    Write-Host "Skipped '$($entry.ServerName)' ($($plan.SkipReason))."
+                }
+                continue
+            }
             $targetType = 'HyperV'
             $hostName = $entry.TargetHost
             if ($hostName -in @('PhysicalWindows','PhysicalLinux')) { $targetType = $hostName; $hostName = $null }
-            Write-Host "Processing $($entry.ServerName) on $($entry.TargetHost)..."
+            if ($targetType -eq 'HyperV' -and $null -ne $plan.Resolved) {
+                $actualVM = [string]$plan.Resolved.VMName
+                if ([string]::IsNullOrWhiteSpace($actualVM)) { $actualVM = [string]$plan.Resolved.Name }
+                $actualNode = [string]$plan.Resolved.HyperVHost
+                if ([string]::IsNullOrWhiteSpace($actualNode)) { $actualNode = [string]$entry.TargetHost }
+                Write-Host ("Processing VM '{0}' on {1} (requested: '{2}')..." -f $actualVM,$actualNode,$entry.ServerName)
+            } else {
+                Write-Host "Processing $($entry.ServerName) on $($entry.TargetHost)..."
+            }
             try {
-                $result = Invoke-HVTagSingle -ComputerName $entry.ServerName -Type $targetType -HyperVHost $hostName -UserName $UserName -Action $Action -Tags $entry.Tags -ValidateOnly:$ValidateOnly
+                $result = Invoke-HVTagSingle -ComputerName $entry.ServerName -Type $targetType -HyperVHost $hostName -UserName $UserName -Action $Action -Tags $entry.Tags -ValidateOnly:$ValidateOnly -PreResolved $plan.Resolved
                 $entryStatus = if ($result.Status -in @('Success','Skipped','Failed')) { $result.Status } else { 'Failed' }
                 $detail = if ($result.Detail) { [string]$result.Detail } elseif ($result.Reason) { [string]$result.Reason } else { '' }
                 $display = [pscustomobject]@{
@@ -126,5 +172,46 @@ CSV preflight validates every row before any server is processed.
         }
         if ($normalized.Count -eq 0) { throw "-Tags contains no values for -$Action." }
     } elseif ($Tags) { throw "-Tags is not valid with -Action $Action." }
+    # Hyper-V interactive targeting uses the same shared multi-selection resolver as
+    # hv-remove and hv-tags CSV mode. A single requested name may select several VMs.
+    # Resolve the complete selection before performing any tag writes.
+    if ($Type -eq 'HyperV') {
+        if (-not $HyperVHost) { throw 'HyperV requires -HyperVHost or a TargetHost in the CSV.' }
+
+        $selectionContext = New-HVSelectionContext
+        $resolvedTargets = @(Resolve-HVExistingVM -VMName $ComputerName -HyperVHost $HyperVHost `
+            -PermittedSelection Multiple -SelectionContext $selectionContext `
+            -ValidateOnly:$ValidateOnly -ReadOnly:($Action -eq 'Get'))
+
+        foreach ($target in $resolvedTargets) {
+            if ($target.Status -in @('Skipped','NotFound')) {
+                [pscustomobject]@{
+                    ComputerName = $ComputerName; Type = 'HyperV'; Cluster = $HyperVHost
+                    Action = $Action; Changed = $false; ValidateOnly = [bool]$ValidateOnly
+                    Status = 'Skipped'; Reason = $target.Reason
+                }
+                continue
+            }
+
+            # Isolate operation failures so one selected VM does not prevent later
+            # selected VMs from being processed. Selection itself is already complete.
+            try {
+                Invoke-HVTagSingle -ComputerName $ComputerName -Type $Type `
+                    -HyperVHost $HyperVHost -UserName $UserName -Action $Action `
+                    -Tags $normalized -ValidateOnly:$ValidateOnly -PreResolved $target
+            }
+            catch {
+                [pscustomobject]@{
+                    ComputerName = $ComputerName; VMName = $target.VMName
+                    Type = 'HyperV'; Cluster = $HyperVHost; HyperVHost = $target.HyperVHost
+                    Action = $Action; Changed = $false; ValidateOnly = [bool]$ValidateOnly
+                    Status = 'Failed'; Detail = $_.Exception.Message
+                }
+            }
+        }
+        return
+    }
+
+    # Physical Windows/Linux targets retain their existing single-target workflow.
     Invoke-HVTagSingle -ComputerName $ComputerName -Type $Type -HyperVHost $HyperVHost -UserName $UserName -Action $Action -Tags $normalized -ValidateOnly:$ValidateOnly
 }

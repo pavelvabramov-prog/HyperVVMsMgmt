@@ -1,39 +1,13 @@
-﻿# Purpose: Select-VMTargetCandidate - shared helper.
-# Maintains the existing validation, logging, and execution behavior.
-
-# Selects vMTarget Candidate for the calling workflow.
+﻿# Single-candidate policy adapter; candidate discovery/classification is shared by callers.
 function Select-VMTargetCandidate {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$BaseVMName,
-
-        [Parameter(Mandatory = $true)]
-        [object[]]$Candidates
-    )
-
-    $candidateList = @($Candidates)
-    if ($candidateList.Count -lt 1) {
-        throw "No candidates are available for '$BaseVMName'."
-    }
-
-    # Candidate list is printed by the caller before this function is called.
-    # Keep this function responsible only for reading/validating the user selection,
-    # so Apply mode does not display the same candidates twice.
-
-    while ($true) {
-        $answer = Read-Host ("Select VM for '{0}' by number [1-{1}], or Q to skip" -f $BaseVMName, $candidateList.Count)
-
-        if ($answer -match '^[Qq]$') {
-            return $null
-        }
-
-        $selectedIndex = 0
-        if ([int]::TryParse($answer, [ref]$selectedIndex)) {
-            if ($selectedIndex -ge 1 -and $selectedIndex -le $candidateList.Count) {
-                return $candidateList[$selectedIndex - 1]
-            }
-        }
-
-        Write-Warning "Invalid selection '$answer'. Enter a number from 1 to $($candidateList.Count), or Q to skip."
-    }
+    param([Parameter(Mandatory)][string]$BaseVMName,[Parameter(Mandatory)][object[]]$Candidates)
+    $context = New-HVSelectionContext
+    $rows = @($Candidates | ForEach-Object {
+        [pscustomobject]@{Id=[string]$_.Id;Name=[string]$_.Name;Node=[string]$_.Node;Kind=[string]$_.Kind;State=$_.State;Original=$_}
+    })
+    # Caller already displays candidates; shared engine can suppress its duplicate list.
+    $result = Resolve-HVBatchSelection -RequestedName $BaseVMName -Candidates $rows `
+        -PermittedSelection Single -SelectionContext $context -SuppressCandidateDisplay
+    if ($result.Status -ne 'Selected') { return $null }
+    return $result.Selected[0].Original
 }
